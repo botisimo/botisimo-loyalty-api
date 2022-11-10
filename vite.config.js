@@ -6,7 +6,7 @@ module.exports = defineConfig({
     target: 'node16',
 
     lib: {
-      entry: resolve(__dirname, './dist/botisimo-api.ts'),
+      entry: resolve(__dirname, './src/botisimo-api.ts'),
       name: 'BotisimoApi',
       fileName: (format) => `index.${format}.js`,
     },

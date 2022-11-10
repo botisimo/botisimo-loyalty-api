@@ -1,0 +1,38 @@
+# Run tests and comment to PR when a PR is opened or updated
+name: Check pull request
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [14.x, 16.x, 18.x]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm ci
+      - name: Run tests
+        run: |
+          mkdir -p coverage
+          npm test | tee coverage/coverage.txt
+        env:
+          CI: true
+      - name: Jest coverage comment
+        uses: MishaKav/jest-coverage-comment@main
+        with:
+          title: Jest Coverage
+          summary-title: Summary
+          badge-title: Coverage
+          hide-summary: false
+          coverage-title: Files
+          coverage-path: ./coverage/coverage.txt

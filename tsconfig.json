@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "outDir": "./dist",
     "module": "commonjs",
     "allowJs": true,
     "noImplicitAny": true,
@@ -10,6 +9,9 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "target": "ES2022",
-    "moduleResolution": "Node"
-  }
+    "moduleResolution": "Node",
+    "skipLibCheck": true,
+    "outFile": "./dist/index.d.ts"
+  },
+  "include": ["src/botisimo-api.ts"]
 }

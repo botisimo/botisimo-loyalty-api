@@ -1,4 +1,4 @@
-import { MockServer } from '../test/server.mock';
+import { MockServer } from './test/server.mock';
 import { BotisimoApi } from './botisimo-api';
 
 const Random = {
@@ -186,6 +186,19 @@ describe('BotisimoApi', () => {
         expect.objectContaining({ url: '/signup' }),
       );
     });
+
+    it('should store the token on localStorage', async () => {
+      const server = createMockServer();
+      server.post.mockResolvedValue({
+        user: { id: 1 },
+        token: 'token',
+      });
+      const api = new BotisimoApi(server.url);
+      await api.signup({} as any);
+      expect(globalThis.localStorage.getItem('botisimo-auth-token')).toEqual(
+        'token',
+      );
+    });
   });
 
   describe('forgotPassword', () => {
@@ -250,6 +263,13 @@ describe('BotisimoApi', () => {
       await api.updateUser({} as any);
       await api.getUser();
       expect(server.get).toHaveBeenCalledTimes(2);
+    });
+
+    it(`shouldn't fail if nothing is passed in`, async () => {
+      const server = createMockServer();
+      const api = new BotisimoApi(server.url);
+      const promise = api.updateUser();
+      await expect(promise).resolves.not.toThrow();
     });
   });
 
