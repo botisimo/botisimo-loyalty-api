@@ -15,13 +15,16 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
+          # This isn't needed, but allows commits back to the PR
           ref: ${{ github.event.pull_request.head.ref }}
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
       - run: npm ci
       - name: Run tests
+        timeout-minutes: 2
         run: |
           mkdir -p coverage
           npm test | tee coverage/coverage.txt
