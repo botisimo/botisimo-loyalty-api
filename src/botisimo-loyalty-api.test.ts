@@ -1,5 +1,5 @@
 import { MockServer } from './test/server.mock';
-import { BotisimoApi } from './botisimo-api';
+import { BotisimoLoyaltyApi } from './botisimo-loyalty-api';
 import fetch from 'node-fetch';
 
 const Random = {
@@ -20,12 +20,12 @@ const createMockServer = () => {
 };
 
 const createApi = (url: string) => {
-  return new BotisimoApi(url, {
+  return new BotisimoLoyaltyApi(url, {
     fetch,
   });
 };
 
-describe('BotisimoApi', () => {
+describe('BotisimoLoyaltyApi', () => {
   // Default timeout for all tests in this suite is 200ms
   jest.setTimeout(200);
   let server: ReturnType<typeof createMockServer>;
@@ -41,7 +41,7 @@ describe('BotisimoApi', () => {
   });
 
   it('should fail if fetch is not provided', () => {
-    expect(() => new BotisimoApi('test')).toThrowError(
+    expect(() => new BotisimoLoyaltyApi('test')).toThrowError(
       'You must provide a fetch implementation',
     );
   });

@@ -1,10 +1,10 @@
 {
-  "name": "@botisimo/api",
+  "name": "@botisimo/loyalty-api",
   "version": "0.0.1",
   "description": "",
   "main": "./dist/index.umd.js",
   "module": "./dist/index.es.js",
-  "types": "./dist/botisimo-api.d.ts",
+  "types": "./dist/botisimo-loyalty-api.d.ts",
   "scripts": {
     "build": "vite build --mode production && tsc",
     "test": "jest --coverage --coverageReporters json-summary text"

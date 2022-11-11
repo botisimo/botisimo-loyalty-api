@@ -14,5 +14,5 @@
     // "outFile": "./dist/index.d.ts"
     "outDir": "./dist"
   },
-  "include": ["src/botisimo-api.ts"]
+  "include": ["src/botisimo-loyalty-api.ts"]
 }

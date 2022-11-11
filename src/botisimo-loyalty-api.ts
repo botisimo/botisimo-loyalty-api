@@ -31,7 +31,7 @@ type Fetch = (
   json: () => Promise<any>;
 }>;
 
-export class BotisimoApi {
+export class BotisimoLoyaltyApi {
   public cache: ExpiringStore;
   localStorage: LocalStorage;
   fetch: Fetch;
@@ -83,8 +83,6 @@ export class BotisimoApi {
     this.baseUrl = teamName.startsWith('http')
       ? teamName
       : `https://botisimo.com/api/v1/loyalty/${teamName}`;
-    // Strip off trailing slash
-    this.baseUrl = this.baseUrl.replace(/\/+$/, '');
   }
 
   protected async request<TResult>(
