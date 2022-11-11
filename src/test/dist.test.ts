@@ -1,6 +1,6 @@
 // import { BotisimoApi } from '../../';
-import { MockServer } from './server.mock';
-import fetch from 'node-fetch';
+// import { MockServer } from './server.mock';
+// import fetch from 'node-fetch';
 
 describe('BotisimoApi', () => {
   it('should make a basic api call', async () => {
