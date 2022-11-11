@@ -16,6 +16,12 @@ jobs:
           registry-url: https://registry.npmjs.org/
       - run: npm ci
       - run: npm run build
-      - run: npm publish
+      - run: |
+          VERSION=$GITHUB_REF_NAME
+          # Set the version in package.json
+          npm version $VERSION --no-git-tag-version
+          npm publish
+          --access public
+          --tag ${{ github.event.release.prerelease && 'next' || 'latest' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
