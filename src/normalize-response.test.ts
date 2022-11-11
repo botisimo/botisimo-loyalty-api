@@ -20,4 +20,10 @@ describe('normalizeError', () => {
 
     await expect(promise).rejects.toEqual({ error: 'Unknown error' });
   });
+
+  it('should return message', async () => {
+    const promise = normalizeError({ message: 'message' } as any);
+
+    await expect(promise).rejects.toEqual({ error: 'message' });
+  });
 });

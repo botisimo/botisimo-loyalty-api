@@ -1,5 +1,3 @@
-import axios, { AxiosInstance } from 'axios';
-import { withCache } from './axios-cache-decorator';
 import { ExpiringStore } from './expiring-store';
 import { normalizeError } from './normalize-response';
 import {
@@ -16,56 +14,132 @@ import {
 } from './types';
 export * from './types';
 
-globalThis.localStorage =
-  // @ts-ignore
-  this.localStorage ||
-  (() => {
-    const result = {
-      // @ts-ignore
-      getItem: (name: string) => result[name],
-      // @ts-ignore
-      setItem: (name: string, value: any) => (result[name] = value),
-    };
+type LocalStorage = {
+  getItem: (name: string) => string | null;
+  setItem: (name: string, value: string) => void;
+};
 
-    return result;
-  })();
+type Fetch = (
+  url: string,
+  options?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+  },
+) => Promise<{
+  ok: boolean;
+  json: () => Promise<any>;
+}>;
 
 export class BotisimoApi {
-  protected axios: AxiosInstance;
   public cache: ExpiringStore;
+  localStorage: LocalStorage;
+  fetch: Fetch;
+  baseUrl: string;
 
   constructor(
     teamName: string,
     {
       defaultCacheTtl = 5 * 60 * 1000,
+      fetch,
+      localStorage,
     }: {
       /** Time in ms for cache entries to expires (default: 5 minutes) */
       defaultCacheTtl?: number;
+      /**
+       * If you're using this outside the browser, you may need to provide an
+       * object that satisfies the localStorage interface
+       */
+      localStorage?: LocalStorage;
+      /**
+       * If you're using this outside the browser, you may need to provide an
+       * object that satisfies the fetch interface. For nodejs, you can use
+       * `node-fetch`
+       */
+      fetch?: Fetch;
     } = {},
   ) {
+    // Setup localStorage
+    try {
+      this.localStorage = localStorage ?? window.localStorage;
+    } catch {
+      this.localStorage = {
+        getItem: (name: string) => (this.localStorage as any)[name] ?? null,
+        setItem: (name: string, value: any) =>
+          ((this.localStorage as any)[name] = value),
+      };
+    }
+
+    // Setup fetch
+    try {
+      this.fetch = fetch ?? window.fetch;
+    } catch {
+      throw new Error(
+        'You must provide a fetch implementation if you are not using this in a browser',
+      );
+    }
+
     this.cache = new ExpiringStore(defaultCacheTtl);
-    const endpoint = teamName.startsWith('http')
+    this.baseUrl = teamName.startsWith('http')
       ? teamName
       : `https://botisimo.com/api/v1/loyalty/${teamName}`;
-    // Make axios use the cache
-    this.axios = withCache(
-      axios.create({
-        baseURL: endpoint,
-        headers: {
-          ['x-user-auth-token']: this.getToken(),
-        },
-      }),
-      this.cache,
-    );
+    // Strip off trailing slash
+    this.baseUrl = this.baseUrl.replace(/\/+$/, '');
   }
 
-  private getToken() {
-    return localStorage.getItem('botisimo-auth-token') ?? '';
+  protected async request<TResult>(
+    method: 'get' | 'post' | 'put' | 'patch' | 'delete',
+    url: string,
+    data?: any,
+  ): Promise<TResult> {
+    const performRequest = async () => {
+      const parsedUrl = new URL(`${this.baseUrl}/${url}`);
+
+      // Remove double slashes
+      parsedUrl.pathname = parsedUrl.pathname.replace(/\/+/g, '/');
+
+      if (method === 'get') {
+        for (const [key, value] of Object.entries(data ?? {})) {
+          parsedUrl.searchParams.append(key, String(value ?? ''));
+        }
+      }
+
+      const body = method === 'get' ? undefined : JSON.stringify(data);
+      const token = this.getToken();
+
+      const result = await this.fetch(parsedUrl.toString(), {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'x-user-auth-token': token } : {}),
+        },
+        body,
+      });
+
+      // If the status is 2xx, return the result
+      if (result.ok) return result.json().catch(() => ({}));
+      // Otherwise return the error
+      return result
+        .json()
+        .then((error) => {
+          throw error;
+        })
+        .catch(normalizeError);
+    };
+
+    if (method === 'get') {
+      return this.cache.get(url, performRequest);
+    }
+
+    return performRequest();
+  }
+
+  getToken() {
+    return this.localStorage.getItem('botisimo-auth-token') ?? '';
   }
 
   private storeToken(token: string) {
-    localStorage.setItem('botisimo-auth-token', token);
-    this.axios.defaults.headers.common['x-user-auth-token'] = token;
+    this.localStorage.setItem('botisimo-auth-token', token);
   }
 
   async getMediaUrl({
@@ -80,13 +154,10 @@ export class BotisimoApi {
   // #region Team API
 
   async getTeam() {
-    return this.axios
-      .get<{
-        /** The team object */
-        team: Team;
-      }>('')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The team object */
+      team: Team;
+    }>('get', '');
   }
 
   // #endregion
@@ -114,17 +185,12 @@ export class BotisimoApi {
     /** The ID from a referral link (this is the ID of another user) */
     referralId?: number;
   }) {
-    return this.axios
-      .post('/signup', options)
-      .then((r) => r.data)
-      .then((data) => {
-        if (data.token) {
-          this.storeToken(data.token);
-        }
-
-        return data;
-      })
-      .catch(normalizeError);
+    return this.request<{
+      token?: string;
+    }>('post', 'signup', options).then((data) => {
+      if (data.token) this.storeToken(data.token);
+      return data;
+    });
   }
 
   /** Log in */
@@ -137,25 +203,17 @@ export class BotisimoApi {
     /** User password */
     password: string;
   }) {
-    return (
-      this.axios
-        .post<{
-          /** The user object */
-          user: User;
-          /** The user’s auth token */
-          token: string;
-        }>('/login', { email, password })
-        .then((r) => r.data)
-        // Store auth tokens
-        .then((data) => {
-          if (data.token) {
-            this.storeToken(data.token);
-          }
-
-          return data;
-        })
-        .catch(normalizeError)
-    );
+    return this.request<{
+      /** The user object */
+      user: User;
+      /** The user’s auth token */
+      token: string;
+    }>('post', 'login', { email, password })
+      .then((data) => {
+        if (data.token) this.storeToken(data.token);
+        return data;
+      })
+      .catch(normalizeError);
   }
 
   /**
@@ -194,10 +252,7 @@ export class BotisimoApi {
     /** The URL path to link to in the forgot password email */
     returnPath: string;
   }) {
-    return this.axios
-      .post('/password/forgot', { email, returnPath })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request('post', 'password/forgot', { email, returnPath });
   }
 
   /**
@@ -215,17 +270,13 @@ export class BotisimoApi {
     /** The token from the forgot password email */
     token: string;
   }) {
-    return this.axios
-      .post('/password/reset', { password, token })
-      .then((r) => r.data)
-      .then((data) => {
-        if (data.token) {
-          this.storeToken(data.token);
-        }
-
-        return data;
-      })
-      .catch(normalizeError);
+    return this.request<{
+      /** The user’s auth token */
+      token: string;
+    }>('post', 'password/reset', { password, token }).then((data) => {
+      if (data.token) this.storeToken(data.token);
+      return data;
+    });
   }
 
   // #endregion
@@ -240,13 +291,7 @@ export class BotisimoApi {
    * **GET** /user/list
    */
   async listUsers() {
-    return this.axios
-      .get<{
-        /** List of users */
-        users: User[];
-      }>('/user/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{ users: User[] }>('get', 'user/list');
   }
 
   /**
@@ -257,13 +302,10 @@ export class BotisimoApi {
    * **GET** /user
    */
   async getUser() {
-    return this.axios
-      .get<{
-        /** The user object */
-        user: User;
-      }>('/user')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The user object */
+      user: User;
+    }>('get', 'user');
   }
 
   /**
@@ -301,16 +343,10 @@ export class BotisimoApi {
       tags?: number[];
     } = {},
   ) {
-    return this.axios
-      .put<{
-        /** The user object */
-        user: User;
-      }>('/user', options)
-      .then((r) => {
-        this.cache.clear();
-        return r.data;
-      })
-      .catch(normalizeError);
+    return this.request<{ user: User }>('put', 'user', options).then((data) => {
+      this.cache.clear();
+      return data;
+    });
   }
 
   /**
@@ -334,10 +370,7 @@ export class BotisimoApi {
     /** The URL path to link to in the verification email */
     returnPath: string;
   }) {
-    return this.axios
-      .post('/email/request', { returnPath })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request('post', 'email/request', { returnPath });
   }
 
   /**
@@ -354,10 +387,7 @@ export class BotisimoApi {
     /** The token from the email verification */
     token: string;
   }) {
-    return this.axios
-      .post('/email/verify', { token })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request('post', 'email/verify', { token });
   }
 
   /**
@@ -375,15 +405,11 @@ export class BotisimoApi {
     /** Set to “true” to enable base64 upload */
     base64?: boolean;
   }) {
-    return this.axios
-      .get<{
-        /** The URL to upload the image to */
-        url: string;
-        /** The ID of the resource */
-        resourceId: number;
-      }>('/resource', { params: options })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{ url: string; resourceId: number }>(
+      'get',
+      'resource',
+      options,
+    );
   }
 
   /**
@@ -405,15 +431,9 @@ export class BotisimoApi {
     /** The URL path to the product to open */
     shopifyPath: string;
   }) {
-    return this.axios
-      .get<{
-        /** The URL to open in the Shopify Multipass session */
-        href: string;
-      }>('/user/multipass', {
-        params: { shopifyPath },
-      })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{ href: string }>('get', 'user/multipass', {
+      shopifyPath,
+    });
   }
 
   /**
@@ -433,10 +453,7 @@ export class BotisimoApi {
     /** The platform to disconnect */
     platform: string;
   }) {
-    return this.axios
-      .delete(`/user/profile/${platform}`)
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request('delete', `user/profile/${platform}`);
   }
 
   // #region Billing API
@@ -465,21 +482,20 @@ export class BotisimoApi {
     /** The URL path to return to after stripe checkout */
     returnPath?: string;
   }) {
-    return this.axios
-      .get<{
-        /**
-         * The amount due in cents to process the update. If included, the user
-         * should be prompted to confirm the amount and then use the
-         * `/billing/confirm` endpoint
-         */
-        amountDue?: number;
-        /** If included, you should immediately redirect to this href */
-        href?: string;
-      }>('/billing/update', {
-        params: { interval, membership, returnPath },
-      })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /**
+       * The amount due in cents to process the update. If included, the user
+       * should be prompted to confirm the amount and then use the
+       * `/billing/confirm` endpoint
+       */
+      amountDue?: number;
+      /** If included, you should immediately redirect to this href */
+      href?: string;
+    }>('get', '/billing/update', {
+      interval,
+      membership,
+      returnPath,
+    });
   }
 
   /**
@@ -502,15 +518,10 @@ export class BotisimoApi {
     /** The URL path to return to after stripe checkout */
     returnPath?: string;
   }) {
-    return this.axios
-      .get<{
-        /** If included, you should redirect to this href for adding a card */
-        href?: string;
-      }>('/billing/confirm', {
-        params: { interval, membership, returnPath },
-      })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** If included, you should redirect to this href for adding a card */
+      href?: string;
+    }>('get', '/billing/confirm', { interval, membership, returnPath });
   }
 
   /**
@@ -526,15 +537,12 @@ export class BotisimoApi {
     /** The URL path to return to after stripe checkout */
     returnPath?: string;
   }) {
-    return this.axios
-      .get<{
-        /** The href to the billing management session */
-        href: string;
-      }>('/billing/manage', {
-        params: { returnPath },
-      })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The href to the billing management session */
+      href: string;
+    }>('get', '/billing/manage', {
+      returnPath,
+    });
   }
 
   // #region Membership API
@@ -545,13 +553,10 @@ export class BotisimoApi {
    * **GET** /membership/list
    */
   async listMemberships() {
-    return this.axios
-      .get<{
-        /** List of memberships */
-        memberships: LoyaltyMembership[];
-      }>('/membership/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** List of memberships */
+      memberships: LoyaltyMembership[];
+    }>('get', '/membership/list');
   }
 
   /**
@@ -567,13 +572,10 @@ export class BotisimoApi {
     /** The ID of the membership */
     id: number;
   }) {
-    return this.axios
-      .get<{
-        /** The membership object */
-        membership: LoyaltyMembership;
-      }>(`/membership/${id}`)
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The membership object */
+      membership: LoyaltyMembership;
+    }>('get', `/membership/${id}`);
   }
 
   // #region Tier API
@@ -586,13 +588,10 @@ export class BotisimoApi {
    * **GET** /tier/list
    */
   async listTiers() {
-    return this.axios
-      .get<{
-        /** List of tiers */
-        tiers: LoyaltyTier[];
-      }>('/tier/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** List of tiers */
+      tiers: LoyaltyTier[];
+    }>('get', '/tier/list');
   }
 
   /**
@@ -608,10 +607,7 @@ export class BotisimoApi {
     /** The ID of the tier */
     id: number;
   }) {
-    return this.axios
-      .get<{ tier: LoyaltyTier }>(`/tier/${id}`)
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{ tier: LoyaltyTier }>('get', `/tier/${id}`);
   }
 
   // #region Creator API
@@ -624,13 +620,10 @@ export class BotisimoApi {
    * **GET** /creator/list
    */
   async listCreators() {
-    return this.axios
-      .get<{
-        /** List of creators */
-        creators: Creator[];
-      }>('/creator/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** List of creators */
+      creators: Creator[];
+    }>('get', '/creator/list');
   }
 
   // #region Mission API
@@ -643,12 +636,9 @@ export class BotisimoApi {
    * **GET** /mission/list
    */
   async listMissions() {
-    return this.axios
-      .get<{
-        missions: Mission[];
-      }>('/mission/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      missions: Mission[];
+    }>('get', '/mission/list');
   }
 
   /**
@@ -664,13 +654,10 @@ export class BotisimoApi {
     /** The ID of the mission */
     id: number;
   }) {
-    return this.axios
-      .get<{
-        /** The mission object */
-        mission: Mission;
-      }>(`/mission/${id}`)
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The mission object */
+      mission: Mission;
+    }>('get', `/mission/${id}`);
   }
 
   /**
@@ -689,15 +676,12 @@ export class BotisimoApi {
     /** Required if code mission */
     code?: string;
   }) {
-    return this.axios
-      .put<{
-        /** The mission object */
-        mission: Mission;
-      }>(`/mission/${id}/complete`, {
-        code,
-      })
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The mission object */
+      mission: Mission;
+    }>('put', `/mission/${id}/complete`, {
+      code,
+    });
   }
 
   // #region Shop Item API
@@ -710,13 +694,10 @@ export class BotisimoApi {
    * **GET** /shopItem/list
    */
   async listShopItems() {
-    return this.axios
-      .get<{
-        /** List of shop items */
-        shopItems: ShopItem[];
-      }>('/shopItem/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** List of shop items */
+      shopItems: ShopItem[];
+    }>('get', '/shopItem/list');
   }
 
   /**
@@ -732,13 +713,10 @@ export class BotisimoApi {
     /** The ID of the shop item */
     id: number;
   }) {
-    return this.axios
-      .get<{
-        /** The shop item object */
-        shopItem: ShopItem;
-      }>(`/shopItem/${id}`)
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The shop item object */
+      shopItem: ShopItem;
+    }>('get', `/shopItem/${id}`);
   }
 
   /**
@@ -754,13 +732,10 @@ export class BotisimoApi {
     /** The ID of the shop item */
     id: number;
   }) {
-    return this.axios
-      .put<{
-        /** The shop item object */
-        shopItem: ShopItem;
-      }>(`/shopItem/${id}/redeem`)
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The shop item object */
+      shopItem: ShopItem;
+    }>('put', `/shopItem/${id}/redeem`);
   }
 
   // #region Event API
@@ -773,13 +748,10 @@ export class BotisimoApi {
    * **GET** /event/list
    */
   async listEvents() {
-    return this.axios
-      .get<{
-        /** List of events */
-        events: Event[];
-      }>('/event/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** List of events */
+      events: Event[];
+    }>('get', '/event/list');
   }
 
   /**
@@ -795,13 +767,10 @@ export class BotisimoApi {
     /** The ID of the event */
     id: number;
   }) {
-    return this.axios
-      .get<{
-        /** The event object */
-        event: Event;
-      }>(`/event/${id}`)
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** The event object */
+      event: Event;
+    }>('get', `/event/${id}`);
   }
 
   // #region Transaction API
@@ -814,13 +783,10 @@ export class BotisimoApi {
    * **GET** /transaction/list
    */
   async listTransactions() {
-    return this.axios
-      .get<{
-        /** List of transactions */
-        transactions: Transaction[];
-      }>('/transaction/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** List of transactions */
+      transactions: Transaction[];
+    }>('get', '/transaction/list');
   }
 
   // #region Notification API
@@ -833,12 +799,9 @@ export class BotisimoApi {
    * **GET** /notification/list
    */
   async listNotifications() {
-    return this.axios
-      .get<{
-        /** List of notifications */
-        notifications: Notification[];
-      }>('/notification/list')
-      .then((r) => r.data)
-      .catch(normalizeError);
+    return this.request<{
+      /** List of notifications */
+      notifications: Notification[];
+    }>('get', '/notification/list');
   }
 }

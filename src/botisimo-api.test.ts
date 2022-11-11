@@ -1,5 +1,6 @@
 import { MockServer } from './test/server.mock';
 import { BotisimoApi } from './botisimo-api';
+import fetch from 'node-fetch';
 
 const Random = {
   string: () => Math.random().toString(36).substring(7),
@@ -18,9 +19,21 @@ const createMockServer = () => {
   return server as jest.Mocked<MockServer>;
 };
 
+const createApi = (url: string) => {
+  return new BotisimoApi(url, {
+    fetch,
+  });
+};
+
 describe('BotisimoApi', () => {
   // Default timeout for all tests in this suite is 200ms
   jest.setTimeout(200);
+
+  it('should fail if fetch is not provided', () => {
+    expect(() => new BotisimoApi('test')).toThrowError(
+      'You must provide a fetch implementation',
+    );
+  });
 
   describe('login', () => {
     it('should return a token', async () => {
@@ -29,7 +42,7 @@ describe('BotisimoApi', () => {
         user: { id: 1 },
         token: 'token',
       });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       const { token, user } = await api.login({} as any);
       expect(server.post).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/login' }),
@@ -41,7 +54,7 @@ describe('BotisimoApi', () => {
     it('should fail with invalid credentials', async () => {
       const server = createMockServer();
       server.post.mockRejectedValue({ message: 'Invalid credentials' });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await expect(
         api.login({
           email: 'test',
@@ -56,14 +69,12 @@ describe('BotisimoApi', () => {
         user: { id: 1 },
         token: 'token',
       });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.login({
         email: 'test',
         password: 'test',
       });
-      expect(globalThis.localStorage.getItem('botisimo-auth-token')).toEqual(
-        'token',
-      );
+      expect(api.localStorage.getItem('botisimo-auth-token')).toEqual('token');
     });
 
     it('should send the token on subsequent requests', async () => {
@@ -73,7 +84,7 @@ describe('BotisimoApi', () => {
         token: 'token',
       });
       server.get.mockResolvedValue({ id: 1 });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.login({
         email: 'test',
         password: 'test',
@@ -90,20 +101,18 @@ describe('BotisimoApi', () => {
   describe('logout', () => {
     it('should remove the token from localStorage', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.login({
         email: 'test',
         password: 'test',
       });
       api.logout();
-      expect(
-        globalThis.localStorage.getItem('botisimo-auth-token'),
-      ).toBeFalsy();
+      expect(api.localStorage.getItem('botisimo-auth-token')).toBeFalsy();
     });
 
     it('should not send the token on subsequent requests', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.login({
         email: 'test',
         password: 'test',
@@ -124,7 +133,7 @@ describe('BotisimoApi', () => {
     it('should return the user', async () => {
       const server = createMockServer();
       server.get.mockResolvedValue({ id: 1 });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       const user = await api.getUser();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/user' }),
@@ -135,14 +144,14 @@ describe('BotisimoApi', () => {
     it('should fail with an invalid token', async () => {
       const server = createMockServer();
       server.get.mockRejectedValue({ message: 'Invalid token' });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await expect(api.getUser()).rejects.toEqual({ error: 'Invalid token' });
     });
 
     it('should only hit the api once, and cache the result', async () => {
       const server = createMockServer();
       server.get.mockResolvedValue({ user: { id: Random.id() } });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       const { user } = await api.getUser();
       expect(user).toHaveProperty('id', expect.any(Number));
       const { user: user2 } = await api.getUser();
@@ -153,7 +162,7 @@ describe('BotisimoApi', () => {
 
   describe('getMediaUrl', () => {
     it('should return the media url', async () => {
-      const api = new BotisimoApi('');
+      const api = createApi('');
       const url = await api.getMediaUrl({ resourceId: 'resourceId' });
 
       expect(url).toEqual(
@@ -166,7 +175,7 @@ describe('BotisimoApi', () => {
     it('should return a team', async () => {
       const server = createMockServer();
       server.get.mockResolvedValue({ team: { id: 1 } });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       const { team } = await api.getTeam();
 
       expect(server.get).toHaveBeenCalledWith(
@@ -180,7 +189,7 @@ describe('BotisimoApi', () => {
   describe('signup', () => {
     it('should POST to /signup', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.signup({} as any);
       expect(server.post).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/signup' }),
@@ -193,18 +202,16 @@ describe('BotisimoApi', () => {
         user: { id: 1 },
         token: 'token',
       });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.signup({} as any);
-      expect(globalThis.localStorage.getItem('botisimo-auth-token')).toEqual(
-        'token',
-      );
+      expect(api.localStorage.getItem('botisimo-auth-token')).toEqual('token');
     });
   });
 
   describe('forgotPassword', () => {
     it('should POST to /password/forgot', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.forgotPassword({} as any);
       expect(server.post).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/password/forgot' }),
@@ -215,7 +222,7 @@ describe('BotisimoApi', () => {
   describe('resetPassword', () => {
     it('should POST to /password/reset', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.resetPassword({} as any);
 
       expect(server.post).toHaveBeenCalledWith(
@@ -227,18 +234,16 @@ describe('BotisimoApi', () => {
       const token = Random.string();
       const server = createMockServer();
       server.post.mockResolvedValue({ token });
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.resetPassword({} as any);
-      expect(globalThis.localStorage.getItem('botisimo-auth-token')).toEqual(
-        token,
-      );
+      expect(api.localStorage.getItem('botisimo-auth-token')).toEqual(token);
     });
   });
 
   describe('listUsers', () => {
     it('should GET /user/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listUsers();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/user/list' }),
@@ -249,7 +254,7 @@ describe('BotisimoApi', () => {
   describe('updateUser', () => {
     it('should PUT /user', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.updateUser({} as any);
       expect(server.put).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/user' }),
@@ -258,7 +263,7 @@ describe('BotisimoApi', () => {
 
     it('should invalidate the cache', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.getUser();
       await api.updateUser({} as any);
       await api.getUser();
@@ -267,7 +272,7 @@ describe('BotisimoApi', () => {
 
     it(`shouldn't fail if nothing is passed in`, async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       const promise = api.updateUser();
       await expect(promise).resolves.not.toThrow();
     });
@@ -276,7 +281,7 @@ describe('BotisimoApi', () => {
   describe('requestEmailVerification', () => {
     it('should POST /email/request', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.requestEmailVerification({
         returnPath: 'returnPath',
       });
@@ -289,7 +294,7 @@ describe('BotisimoApi', () => {
   describe('verifyEmail', () => {
     it('should POST /email/verify', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.verifyEmail({ token: 'token' });
       expect(server.post).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/email/verify' }),
@@ -300,7 +305,7 @@ describe('BotisimoApi', () => {
   describe('uploadAvatar', () => {
     it('should GET /resource', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.uploadAvatar({} as any);
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/resource' }),
@@ -310,11 +315,14 @@ describe('BotisimoApi', () => {
 
   describe('createShopifyMultipassSession', () => {
     it('should GET /user/multipass', async () => {
+      const shopifyPath = Random.string();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
-      await api.createShopifyMultipassSession({} as any);
+      const api = createApi(server.url);
+      await api.createShopifyMultipassSession({ shopifyPath });
       expect(server.get).toHaveBeenCalledWith(
-        expect.objectContaining({ url: '/user/multipass' }),
+        expect.objectContaining({
+          url: `/user/multipass?shopifyPath=${shopifyPath}`,
+        }),
       );
     });
   });
@@ -323,7 +331,7 @@ describe('BotisimoApi', () => {
     it('should DELETE: /user/profile/$platform', async () => {
       const platform = Random.string();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.disconnectPlatformFromProfile({ platform });
       expect(server.delete).toHaveBeenCalledWith(
         expect.objectContaining({ url: `/user/profile/${platform}` }),
@@ -333,22 +341,49 @@ describe('BotisimoApi', () => {
 
   describe('updateMembership', () => {
     it('should GET /billing/update', async () => {
+      const interval = Random.string();
+      const membership = Random.id();
+      const returnPath = Random.string();
+
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
-      await api.updateMembership({} as any);
+      const api = createApi(server.url);
+      await api.updateMembership({ interval, membership, returnPath });
       expect(server.get).toHaveBeenCalledWith(
-        expect.objectContaining({ url: '/billing/update' }),
+        expect.objectContaining({
+          url: `/billing/update?interval=${interval}&membership=${membership}&returnPath=${returnPath}`,
+        }),
       );
     });
   });
 
   describe('confirmUpdateMembership', () => {
     it('should GET /billing/confirm', async () => {
+      const interval = Random.string();
+      const membership = Random.id();
+      const returnPath = Random.string();
+
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
-      await api.confirmUpdateMembership({} as any);
+      const api = createApi(server.url);
+      await api.confirmUpdateMembership({ interval, membership, returnPath });
       expect(server.get).toHaveBeenCalledWith(
-        expect.objectContaining({ url: '/billing/confirm' }),
+        expect.objectContaining({
+          url: `/billing/confirm?interval=${interval}&membership=${membership}&returnPath=${returnPath}`,
+        }),
+      );
+    });
+
+    it('should be ok if returnPath is omitted', async () => {
+      const interval = Random.string();
+      const membership = Random.id();
+      const returnPath = undefined;
+
+      const server = createMockServer();
+      const api = createApi(server.url);
+      await api.confirmUpdateMembership({ interval, membership, returnPath });
+      expect(server.get).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: `/billing/confirm?interval=${interval}&membership=${membership}&returnPath=`,
+        }),
       );
     });
   });
@@ -357,7 +392,7 @@ describe('BotisimoApi', () => {
     it('should GET /billing/manage', async () => {
       const returnPath = Random.string();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.manageBilling({ returnPath });
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -370,7 +405,7 @@ describe('BotisimoApi', () => {
   describe('listMemberships', () => {
     it('should GET /membership/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listMemberships();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/membership/list' }),
@@ -382,7 +417,7 @@ describe('BotisimoApi', () => {
     it('should GET /membership/$id', async () => {
       const id = Random.id();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.readMembership({ id });
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: `/membership/${id}` }),
@@ -393,7 +428,7 @@ describe('BotisimoApi', () => {
   describe('listTiers', () => {
     it('should GET /tier/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listTiers();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/tier/list' }),
@@ -405,7 +440,7 @@ describe('BotisimoApi', () => {
     it('should GET /tier/$id', async () => {
       const id = Random.id();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.readTier({ id });
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: `/tier/${id}` }),
@@ -416,7 +451,7 @@ describe('BotisimoApi', () => {
   describe('listCreators', () => {
     it('should GET /creator/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listCreators();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/creator/list' }),
@@ -427,7 +462,7 @@ describe('BotisimoApi', () => {
   describe('listMissions', () => {
     it('should GET /mission/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listMissions();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/mission/list' }),
@@ -439,7 +474,7 @@ describe('BotisimoApi', () => {
     it('should GET /mission/$id', async () => {
       const id = Random.id();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.readMission({ id });
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: `/mission/${id}` }),
@@ -451,7 +486,7 @@ describe('BotisimoApi', () => {
     it('should PUT /mission/$id/complete', async () => {
       const id = Random.id();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.completeMission({ id });
       expect(server.put).toHaveBeenCalledWith(
         expect.objectContaining({ url: `/mission/${id}/complete` }),
@@ -462,7 +497,7 @@ describe('BotisimoApi', () => {
   describe('listShopItems', () => {
     it('should GET /shopItem/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listShopItems();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/shopItem/list' }),
@@ -474,7 +509,7 @@ describe('BotisimoApi', () => {
     it('should GET /shopItem/$id', async () => {
       const id = Random.id();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.readShopItem({ id });
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: `/shopItem/${id}` }),
@@ -486,7 +521,7 @@ describe('BotisimoApi', () => {
     it('should PUT /shopItem/$id/redeem', async () => {
       const id = Random.id();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.redeemShopItem({ id });
       expect(server.put).toHaveBeenCalledWith(
         expect.objectContaining({ url: `/shopItem/${id}/redeem` }),
@@ -497,7 +532,7 @@ describe('BotisimoApi', () => {
   describe('listEvents', () => {
     it('should GET /event/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listEvents();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/event/list' }),
@@ -509,7 +544,7 @@ describe('BotisimoApi', () => {
     it('should GET /event/$id', async () => {
       const id = Random.id();
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.readEvent({ id });
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: `/event/${id}` }),
@@ -520,7 +555,7 @@ describe('BotisimoApi', () => {
   describe('listTransactions', () => {
     it('should GET /transaction/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listTransactions();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/transaction/list' }),
@@ -531,7 +566,7 @@ describe('BotisimoApi', () => {
   describe('listNotifications', () => {
     it('should GET /notification/list', async () => {
       const server = createMockServer();
-      const api = new BotisimoApi(server.url);
+      const api = createApi(server.url);
       await api.listNotifications();
       expect(server.get).toHaveBeenCalledWith(
         expect.objectContaining({ url: '/notification/list' }),

@@ -1,6 +1,4 @@
-import { AxiosError } from 'axios';
-
-export const normalizeError = (error: AxiosError) => {
+export const normalizeError = (error: any) => {
   const response = error?.response?.data || error?.response || error;
 
   const message = hasMessage(response)
