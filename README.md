@@ -8,13 +8,13 @@ you to create and manage loyalty systems for your users.
 **npm**
 
 ```
-npm install @botisimo/api
+npm install @botisimo/loyalty-api
 ```
 
 **yarn**
 
 ```
-yarn add @botisimo/api
+yarn add @botisimo/loyalty-api
 ```
 
 ## Getting started
@@ -30,11 +30,11 @@ and set **Custom URL Name**. That will be the name you pass into the api.
 ## Usage
 
 ```js
-const { BotisimoApi } = require('@botisimo/api');
+const { BotisimoLoyaltyApi } = require('@botisimo/loyalty-api');
 
 // Create a new instance of the API with your team name. This should be the same
 // as the Custom URL Name you set in your branding configuration.
-const api = new BotisimoApi(teamName);
+const api = new BotisimoLoyaltyApi(teamName);
 
 await api.login({ email: 'someone@example.com', password: '1234' });
 await api.getUser();
@@ -46,12 +46,12 @@ implementation
 ```js
 const fetch = require('node-fetch');
 
-const api = new BotisimoApi(teamName, { fetch });
+const api = new BotisimoLoyaltyApi(teamName, { fetch });
 ```
 
 You can also override the localStorage implementation in case you want to store
 the token somewhere else.
 
 ```js
-const api = new BotisimoApi(teamName, { localStorage: myLocalStorage });
+const api = new BotisimoLoyaltyApi(teamName, { localStorage: myLocalStorage });
 ```
