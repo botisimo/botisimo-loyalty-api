@@ -20,9 +20,12 @@ const createMockServer = () => {
 };
 
 const createApi = (url: string) => {
-  return new BotisimoLoyaltyApi(url, {
+  const api = new BotisimoLoyaltyApi(url, {
     fetch,
   });
+  api.baseUrl = url;
+
+  return api;
 };
 
 describe('BotisimoLoyaltyApi', () => {
@@ -38,6 +41,15 @@ describe('BotisimoLoyaltyApi', () => {
 
   afterEach(() => {
     server.destroy();
+  });
+
+  it('should accept a team name', async () => {
+    const api = new BotisimoLoyaltyApi('team-name', {
+      // @ts-expect-error
+      fetch: {},
+    });
+
+    expect(api.baseUrl).toBe('https://botisimo.com/api/v1/loyalty/team-name');
   });
 
   it('should fail if fetch is not provided', () => {

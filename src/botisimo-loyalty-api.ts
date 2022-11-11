@@ -80,9 +80,7 @@ export class BotisimoLoyaltyApi {
     }
 
     this.cache = new ExpiringStore(defaultCacheTtl);
-    this.baseUrl = teamName.startsWith('http')
-      ? teamName
-      : `https://botisimo.com/api/v1/loyalty/${teamName}`;
+    this.baseUrl = `https://botisimo.com/api/v1/loyalty/${teamName}`;
   }
 
   protected async request<TResult>(
