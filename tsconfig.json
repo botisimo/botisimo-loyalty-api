@@ -11,7 +11,6 @@
     "target": "ES2022",
     "moduleResolution": "Node",
     "skipLibCheck": true,
-    // "outFile": "./dist/index.d.ts"
     "outDir": "./dist"
   },
   "include": ["src/botisimo-loyalty-api.ts"]
